@@ -16,10 +16,15 @@ class WebScraper:
         self.base_url = "/".join(start_url.split("/")[:-1]) + '/'
         self.session = Session()
         self.preview_details_keys = [
-            'name_item',
-            {'description': ['Бренд', 'Тип', 'Материал корпуса', 'Технология экрана', 'Разрешение экрана', "Диагональ экрана", 'Подключение к компьютеру', 'Игровая', 'Форм-фактор', 'Ёмкость', 'Объем буферной памяти', 'Тип подключения', 'Цвет', 'Тип наушников']},
-            'price'
+            'p_header',
+            'article',
+            'brand',
+            'model',
+            'in_stock',
+            'price',
+            'old_price'
         ]
+        self.columns = ['Название', 'Артикул', 'Бренд', 'Модель', 'Наличие', 'Цена', 'Старая цена', 'Ссылка']
         self.data = []
 
     def fetch_soup(self, url):
@@ -51,24 +56,39 @@ class WebScraper:
             return []
         return [self.base_url + a.get("href") for a in pagination.select("a")]
 
+    def get_item_card_urls(self, site):
+        """Получение ссылок на все карточки товара на странице"""
+        
+        soup = self.fetch_soup(site)
+        pagination = soup.select('a.name_item')
+        if not pagination:
+            return []
+        return [f"{self.base_url}{link.get('href')}" for link in pagination]
+    
     def get_page_items(self, url):
         """Возвращает элементы товаров на странице."""
 
         soup = self.fetch_soup(url)
-        return soup.select("div.item")
+        info = soup.select("div.item")
+        if not info:
+            info = soup.select("div.item_card")
+        return info
 
-    def get_preview_details(self, soup_element):
+    def get_preview_details(self, soup_element, site):
         """Извлекает данные товара из HTML-элемента."""
 
         preview_details = {}
         for key in self.preview_details_keys:
+            
             if isinstance(key, str):
                 element = soup_element.select_one(f".{key}")
-                preview_details[key] = element.get_text(strip=True) if element else None
-            else:
-                descriptions = [x.string for x in soup_element.find_all('li')]
-                for description in descriptions:
-                    preview_details[description.split(': ')[0].strip()] = description.split(': ')[1].strip()
+                if not element:
+                     element = soup_element.select_one(f"#{key}")
+                if key in ('p_header', 'price', 'old_price'):
+                    preview_details[key] = element.get_text(strip=True) if element else None
+                else:
+                    preview_details[key] = element.get_text(strip=True).split(': ')[1].strip() if element else None 
+        preview_details['link'] = site
         return preview_details
 
     def scrape(self):
@@ -80,9 +100,11 @@ class WebScraper:
             self.base_url = "/".join(nav_url.split("/")[:-1]) + '/'
             pagination_urls = self.get_pagination_urls(nav_url)
             for page_url in pagination_urls:
-                page_items = self.get_page_items(page_url)
-                for item in page_items:
-                    all_data.append(self.get_preview_details(item))
+                cards_url = self.get_item_card_urls(page_url)
+                for card_url in cards_url:
+                    page_items = self.get_page_items(card_url)
+                    for item in page_items:
+                        all_data.append(self.get_preview_details(item, card_url))
             self.data = all_data
         return all_data
 
@@ -93,8 +115,9 @@ class WebScraper:
         if not self.data:
             self.scrape()
         try:
-            with open(fname, mode='w', encoding='utf-8-sig', newline='') as file:               
+            with open('pars.csv', mode='w', encoding='utf-8-sig', newline='') as file:               
                 writer = csv.writer(file, delimiter=';')
+                writer.writerow(self.columns)
                 for row in self.data:
                     writer.writerow(row.values())
         except Exception as e:
@@ -105,3 +128,4 @@ if __name__ == "__main__":
     scraper = WebScraper(start_url)
     scraper.scrape()
     scraper.csv_save()
+    scraper.session.close()
