@@ -1,14 +1,6 @@
-'''
-Proxy:
-
-154.16.146.43
-
-'''
-
 from requests import Session
 from bs4 import BeautifulSoup
 import csv
-
 
 class WebScraper:
     def __init__(self, start_url):
